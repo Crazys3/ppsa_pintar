@@ -1,10 +1,19 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // TUGAS ANDA: Ganti URL dan ANON_KEY di bawah ini dengan milik project Supabase Anda!
+  await Supabase.initialize(
+    url: 'https://XYZ_PROJECT_ID_ANDA.supabase.co',
+    anonKey: 'MASUKKAN_ANON_PUBLIC_KEY_SUPABASE_ANDA_DI_SINI',
+  );
+
   runApp(const MyApp());
 }
+
+final supabase = Supabase.instance.client;
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -12,582 +21,797 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PPSA Pintar Ultra',
+      title: 'PPSA PINTAR',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.light,
         fontFamily: 'Segoe UI',
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF0F172A), // Slate Dark
-          primary: const Color(0xFF2563EB), // Royal Blue Accent
-          secondary: const Color(0xFF10B981), // Emerald Green
-          background: const Color(0xFFF1F5F9), // Light Gray Slate
+          seedColor: const Color(0xFF0F172A),
+          primary: const Color(0xFF2563EB),
+          secondary: const Color(0xFF10B981),
         ),
       ),
-      home: const HalamanUtama(),
+      home: const DashboardUtama(),
     );
   }
 }
 
-class ItemData {
+// --- MODEL DATA SANTRI ONLINE ---
+class SantriModel {
   final String id;
-  final String nama;
-  final String kategori;
-  final DateTime tanggal;
+  final String namaLengkap;
+  final String nik;
+  final String nis;
+  final String tempatLahir;
+  final String jenisKelamin;
+  final String desa;
+  final String kecamatan;
+  final String namaAyah;
+  final String nomorTelepon;
+  final String kelasFormal;
+  final String kelasDiniyah;
 
-  ItemData({
+  SantriModel({
     required this.id,
-    required this.nama,
-    required this.kategori,
-    required this.tanggal,
+    required this.namaLengkap,
+    required this.nik,
+    required this.nis,
+    required this.tempatLahir,
+    required this.jenisKelamin,
+    required this.desa,
+    required this.kecamatan,
+    required this.namaAyah,
+    required this.nomorTelepon,
+    required this.kelasFormal,
+    required this.kelasDiniyah,
   });
 
-  // Konversi ke Map untuk disimpan ke Local Storage
   Map<String, dynamic> toMap() {
     return {
       'id': id,
-      'nama': nama,
-      'kategori': kategori,
-      'tanggal': tanggal.toIso8601String(),
+      'nama_lengkap': namaLengkap,
+      'nik': nik,
+      'nis': nis,
+      'tempat_lahir': tempatLahir,
+      'jenis_kelamin': jenisKelamin,
+      'desa': desa,
+      'kecamatan': kecamatan,
+      'nama_ayah': namaAyah,
+      'nomor_telepon': nomorTelepon,
+      'kelas_formal': kelasFormal,
+      'kelas_diniyah': kelasDiniyah,
     };
   }
 
-  // Ambil dari Map Local Storage
-  factory ItemData.fromMap(Map<String, dynamic> map) {
-    return ItemData(
-      id: map['id'],
-      nama: map['nama'],
-      kategori: map['kategori'],
-      tanggal: DateTime.parse(map['tanggal']),
+  factory SantriModel.fromMap(Map<String, dynamic> map) {
+    return SantriModel(
+      id: map['id'] ?? '',
+      namaLengkap: map['nama_lengkap'] ?? '',
+      nik: map['nik'] ?? '',
+      nis: map['nis'] ?? '',
+      tempatLahir: map['tempat_lahir'] ?? '',
+      jenisKelamin: map['jenis_kelamin'] ?? 'Laki-laki',
+      desa: map['desa'] ?? '',
+      kecamatan: map['kecamatan'] ?? '',
+      namaAyah: map['nama_ayah'] ?? '',
+      nomorTelepon: map['nomor_telepon'] ?? '',
+      kelasFormal: map['kelas_formal'] ?? '',
+      kelasDiniyah: map['kelas_diniyah'] ?? '1 Ibtida\'',
     );
   }
 }
 
-class HalamanUtama extends StatefulWidget {
-  const HalamanUtama({super.key});
+// --- CONTROLLER KONEKSI SUPABASE ---
+class PesantrenController {
+  final ValueNotifier<List<SantriModel>> daftarSantriNotifier = ValueNotifier(
+    [],
+  );
+  final ValueNotifier<String> pencarianNotifier = ValueNotifier('');
+  final ValueNotifier<String> filterDiniyahNotifier = ValueNotifier('Semua');
+  final ValueNotifier<Map<String, String>> logAbsensiNotifier = ValueNotifier(
+    {},
+  );
 
-  @override
-  State<HalamanUtama> createState() => _HalamanUtamaState();
+  PesantrenController() {
+    muatSemuaData();
+  }
+
+  // Mengambil data Santri & Absen sekaligus dari Cloud Supabase
+  Future<void> muatSemuaData() async {
+    try {
+      final resSantri = await supabase
+          .from('santri')
+          .select()
+          .order('nama_lengkap', ascending: true);
+      daftarSantriNotifier.value = (resSantri as List)
+          .map((e) => SantriModel.fromMap(e))
+          .toList();
+
+      final resAbsen = await supabase.from('absensi').select();
+      final Map<String, String> mapAbsen = {};
+      for (var row in (resAbsen as List)) {
+        final key =
+            "${row['jenis_absen']}_${row['tanggal']}_${row['santri_id']}";
+        mapAbsen[key] = row['status'];
+      }
+      logAbsensiNotifier.value = mapAbsen;
+    } catch (e) {
+      debugPrint("Gagal memuat data dari Supabase: $e");
+    }
+  }
+
+  Future<void> tambahSantri(SantriModel santri) async {
+    await supabase.from('santri').insert(santri.toMap());
+    await muatSemuaData();
+  }
+
+  Future<void> editSantri(SantriModel santri) async {
+    await supabase.from('santri').update(santri.toMap()).eq('id', santri.id);
+    await muatSemuaData();
+  }
+
+  Future<void> hapusSantri(String id) async {
+    await supabase.from('santri').delete().eq('id', id);
+    await muatSemuaData();
+  }
+
+  Future<void> simpanAbsen(
+    String jenis,
+    String tanggal,
+    String santriId,
+    String status,
+  ) async {
+    try {
+      // Upsert: Menyimpan data baru atau mengupdate jika data hari itu sudah ada
+      await supabase.from('absensi').upsert({
+        'jenis_absen': jenis,
+        'tanggal': tanggal,
+        'santri_id': santriId,
+        'status': status,
+      }, onConflict: 'jenis_absen,tanggal,santri_id');
+
+      final mapBaru = Map<String, String>.from(logAbsensiNotifier.value);
+      final key = "${jenis}_${tanggal}_$santriId";
+      mapBaru[key] = status;
+      logAbsensiNotifier.value = mapBaru;
+    } catch (e) {
+      debugPrint("Gagal simpan absen: $e");
+    }
+  }
+
+  String ambilStatusAbsen(String jenis, String tanggal, String santriId) {
+    final key = "${jenis}_${tanggal}_$santriId";
+    return logAbsensiNotifier.value[key] ?? '-';
+  }
 }
 
-class _HalamanUtamaState extends State<HalamanUtama> {
-  List<ItemData> _daftarData = [];
-  bool _sedangMemuat = true;
-  final TextEditingController _namaController = TextEditingController();
-  String _kategoriTerpilih = 'Utama';
+// --- HUB DASHBOARD UTAMA ---
+class DashboardUtama extends StatefulWidget {
+  const DashboardUtama({super.key});
 
   @override
-  void initState() {
-    super.initState();
-    _muatDataDariStorage();
-  }
+  State<DashboardUtama> createState() => _DashboardUtamaState();
+}
 
-  // FUNGSI 1: Membaca data yang tersimpan di browser
-  Future<void> _muatDataDariStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? dataString = prefs.getString('ppsa_data');
-    if (dataString != null) {
-      final List<dynamic> decodedList = jsonDecode(dataString);
-      setState(() {
-        _daftarData = decodedList
-            .map((item) => ItemData.fromMap(item))
-            .toList();
-        _sedangMemuat = false;
-      });
-    } else {
-      setState(() {
-        _daftarData = [
-          ItemData(
-            id: '1',
-            nama: "Sistem Manajemen Inti",
-            kategori: "Utama",
-            tanggal: DateTime.now(),
-          ),
-          ItemData(
-            id: '2',
-            nama: "Plugin Ekstensi Web",
-            kategori: "Tambahan",
-            tanggal: DateTime.now(),
-          ),
-        ];
-        _sedangMemuat = false;
-      });
-      _simpanDataKeStorage();
-    }
-  }
+class _DashboardUtamaState extends State<DashboardUtama> {
+  final PesantrenController _controller = PesantrenController();
+  final TextEditingController _searchController = TextEditingController();
 
-  // FUNGSI 2: Menyimpan data secara permanen ke browser
-  Future<void> _simpanDataKeStorage() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String encodedData = jsonEncode(
-      _daftarData.map((item) => item.toMap()).toList(),
-    );
-    await prefs.setString('ppsa_data', encodedData);
-  }
+  int _tabAktif = 0;
+  String _subTabAbsenHarian = 'Formal';
 
-  // FUNGSI 3: Tambah Data Instan
-  void _tambahDataBaru() {
-    if (_namaController.text.trim().isEmpty) {
-      _tampilkanNotifikasi('Nama data tidak boleh kosong!', Colors.redAccent);
-      return;
-    }
+  DateTime _tanggalTerpilih = DateTime.now();
+  final List<String> _opsiDiniyah = [
+    'Semua',
+    '1 Ibtida\'',
+    '2 Ibtida\'',
+    '3 Ibtida\'',
+    '4 Ibtida\'',
+    '5 Ibtida\'',
+    '6 Ibtida\'',
+  ];
+  final List<String> _opsiFormal = [
+    '7 SMP',
+    '8 SMP',
+    '9 SMP',
+    '10 SMA',
+    '11 SMA',
+    '12 SMA',
+  ];
 
-    setState(() {
-      _daftarData.insert(
-        0,
-        ItemData(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          nama: _namaController.text.trim(),
-          kategori: _kategoriTerpilih,
-          tanggal: DateTime.now(),
-        ),
-      );
-      _namaController.clear();
-    });
-    _simpanDataKeStorage();
-    _tampilkanNotifikasi(
-      'Komponen baru berhasil dideploy!',
-      const Color(0xFF10B981),
-    );
-  }
-
-  // FUNGSI 4: Hapus Data
-  void _hapusData(String id) {
-    setState(() {
-      _daftarData.removeWhere((item) => item.id == id);
-    });
-    _simpanDataKeStorage();
-    _tampilkanNotifikasi('Komponen berhasil dihapus.', Colors.amber);
-  }
-
-  void _tampilkanNotifikasi(String pesan, Color warna) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          pesan,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: warna,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(12),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _namaController.dispose();
-    super.dispose();
-  }
+  String _formatTanggal(DateTime dt) => "${dt.day}-${dt.month}-${dt.year}";
 
   @override
   Widget build(BuildContext context) {
-    int totalUtama = _daftarData.where((d) => d.kategori == 'Utama').length;
-    int totalTambahan = _daftarData
-        .where((d) => d.kategori == 'Tambahan')
-        .length;
-    int totalSemua = _daftarData.length;
-    double rasioUtama = totalSemua == 0 ? 0.0 : totalUtama / totalSemua;
-
-    if (_sedangMemuat) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    final isDesktop = MediaQuery.of(context).size.width > 900;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
         title: const Row(
           children: [
-            Icon(Icons.terminal, color: Colors.white, size: 28),
+            Icon(Icons.mosque, color: Colors.white),
             SizedBox(width: 12),
             Text(
-              'PPSA PINTAR ULTRA',
+              'PPSA PINTAR (ONLINE)',
               style: TextStyle(
                 fontWeight: FontWeight.w900,
-                letterSpacing: 1.5,
                 color: Colors.white,
-                fontSize: 20,
+                letterSpacing: 1.2,
               ),
             ),
           ],
         ),
-        elevation: 4,
-        shadowColor: Colors.black26,
-        backgroundColor: const Color(0xFF0F172A), // Premium Dark Slate AppBar
+        backgroundColor: const Color(0xFF0F172A),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: () => _controller.muatSemuaData(),
+          ),
+        ],
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(50),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              _buildNavButton(0, Icons.folder_shared, 'Master Santri'),
+              _buildNavButton(1, Icons.view_headline, 'Absensi Harian'),
+              _buildNavButton(2, Icons.time_to_leave, 'Absen Pulang'),
+            ],
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 32.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: RefreshIndicator(
+        onRefresh: () => _controller.muatSemuaData(),
+        child: AnimatedBuilder(
+          animation: Listenable.merge([
+            _controller.daftarSantriNotifier,
+            _controller.pencarianNotifier,
+            _controller.filterDiniyahNotifier,
+            _controller.logAbsensiNotifier,
+          ]),
+          builder: (context, _) {
+            final semuaSantri = _controller.daftarSantriNotifier.value;
+
+            if (_tabAktif == 0) {
+              return _buildHalamanMaster(semuaSantri, isDesktop);
+            } else if (_tabAktif == 1) {
+              return _buildHalamanAbsenHarian(semuaSantri);
+            } else {
+              return _buildHalamanAbsenPulang(semuaSantri);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavButton(int index, IconData icon, String label) {
+    bool aktif = _tabAktif == index;
+    return InkWell(
+      onTap: () => setState(() => _tabAktif = index),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: aktif ? const Color(0xFF10B981) : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        child: Row(
           children: [
-            // --- GRID UTAMA: STATISTIK & GRAFIK LINGKARAN ---
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: Column(
-                    children: [
-                      _buildStatCard(
-                        'Komponen Utama',
-                        '$totalUtama',
-                        Icons.layers,
-                        const Color(0xFF2563EB),
-                      ),
-                      const SizedBox(height: 16),
-                      _buildStatCard(
-                        'Komponen Tambahan',
-                        '$totalTambahan',
-                        Icons.extension,
-                        const Color(0xFF10B981),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 24),
-                // Visual Analytics Chart Card
-                Expanded(
-                  flex: 2,
-                  child: Container(
-                    height: 184,
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Rasio Struktur',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Color(0xFF1E293B),
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              'Perbandingan\nUtama vs Tambahan',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                        Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 90,
-                              height: 90,
-                              child: CircularProgressIndicator(
-                                value: rasioUtama,
-                                strokeWidth: 10,
-                                backgroundColor: const Color(0xFF10B981),
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  Color(0xFF2563EB),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${(rasioUtama * 100).toStringAsFixed(0)}%',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-
-            // --- PANEL CONTROL INPUT DATA (GLASSMORPHISM STYLE) ---
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: TextField(
-                      controller: _namaController,
-                      decoration: InputDecoration(
-                        labelText: 'Nama Modul / Komponen Kerja',
-                        labelStyle: const TextStyle(color: Color(0xFF64748B)),
-                        prefixIcon: const Icon(
-                          Icons.token,
-                          color: Color(0xFF2563EB),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                            color: Color(0xFF2563EB),
-                            width: 2,
-                          ),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 2,
-                    child: DropdownButtonFormField<String>(
-                      value: _kategoriTerpilih,
-                      decoration: InputDecoration(
-                        labelText: 'Klasifikasi',
-                        prefixIcon: const Icon(Icons.schema_outlined),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                      ),
-                      items: <String>['Utama', 'Tambahan'].map((String val) {
-                        return DropdownMenuItem<String>(
-                          value: val,
-                          child: Text(val),
-                        );
-                      }).toList(),
-                      onChanged: (newVal) =>
-                          setState(() => _kategoriTerpilih = newVal!),
-                    ),
-                  ),
-                  const SizedBox(width: 20),
-                  SizedBox(
-                    height: 56,
-                    child: ElevatedButton(
-                      onPressed: _tambahDataBaru,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0F172A),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 32),
-                        elevation: 2,
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.bolt, color: Colors.amber, size: 22),
-                          SizedBox(width: 8),
-                          Text(
-                            'DEPLOI DATA',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 36),
-
-            // --- DAFTAR LIST VIEW DENGAN FITUR HAPUS ---
-            const Text(
-              'Database Log Arsitektur',
+            Icon(icon, color: aktif ? Colors.white : Colors.white60, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
               style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF0F172A),
+                color: aktif ? Colors.white : Colors.white60,
+                fontWeight: aktif ? FontWeight.bold : FontWeight.normal,
               ),
             ),
-            const SizedBox(height: 16),
-            _daftarData.isEmpty
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(40),
-                      child: Text(
-                        'Belum ada modul yang terpasang.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _daftarData.length,
-                    itemBuilder: (context, index) {
-                      final item = _daftarData[index];
-                      final isUtama = item.kategori == 'Utama';
-
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        margin: const EdgeInsets.only(bottom: 14),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                          leading: Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isUtama
-                                  ? const Color(0xFFEEF2F6)
-                                  : const Color(0xFFECFDF5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(
-                              isUtama ? Icons.layers : Icons.extension,
-                              color: isUtama
-                                  ? const Color(0xFF2563EB)
-                                  : const Color(0xFF10B981),
-                            ),
-                          ),
-                          title: Text(
-                            item.nama,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                              color: Color(0xFF1E293B),
-                            ),
-                          ),
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 4.0),
-                            child: Text(
-                              'ID-${item.id} • Terdaftar Jam ${item.tanggal.hour.toString().padLeft(2, '0')}:${item.tanggal.minute.toString().padLeft(2, '0')} WIB',
-                              style: const TextStyle(
-                                color: Color(0xFF64748B),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Chip(
-                                label: Text(
-                                  item.kategori,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                                backgroundColor: isUtama
-                                    ? const Color(0xFF2563EB)
-                                    : const Color(0xFF10B981),
-                                padding: EdgeInsets.zero,
-                              ),
-                              const SizedBox(width: 16),
-                              // TOMBOL HAPUS DATA
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: Colors.redAccent,
-                                ),
-                                onPressed: () => _hapusData(item.id),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildStatCard(
-    String title,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildHalamanMaster(List<SantriModel> semuaSantri, bool isDesktop) {
+    final kataKunci = _controller.pencarianNotifier.value.toLowerCase();
+    final filterDiniyah = _controller.filterDiniyahNotifier.value;
+
+    final dataTersaring = semuaSantri.where((s) {
+      final cocokNama =
+          s.namaLengkap.toLowerCase().contains(kataKunci) ||
+          s.nis.contains(kataKunci);
+      final cocokFilter =
+          filterDiniyah == 'Semua' || s.kelasDiniyah == filterDiniyah;
+      return cocokNama && cocokFilter;
+    }).toList();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(16),
+              const Text(
+                'Database Validasi Santri (Cloud)',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF0F172A),
                 ),
-                child: Icon(icon, size: 28, color: color),
               ),
-              const SizedBox(width: 20),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF64748B),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: color,
-                    ),
-                  ),
-                ],
+              ElevatedButton.icon(
+                onPressed: () => _tampilkanFormInput(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                ),
+                icon: const Icon(Icons.person_add_alt_1),
+                label: const Text('Tambah Santri Baru'),
               ),
             ],
           ),
-          const Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: Color(0xFFCBD5E1),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: InputDecoration(
+                    hintText: 'Cari nama / NIS...',
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onChanged: (v) => _controller.pencarianNotifier.value = v,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  value: filterDiniyah,
+                  decoration: InputDecoration(
+                    labelText: 'Filter Diniyah',
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  items: _opsiDiniyah
+                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                      .toList(),
+                  onChanged: (v) => setState(
+                    () => _controller.filterDiniyahNotifier.value = v!,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columns: const [
+                  DataColumn(label: Text('NIS')),
+                  DataColumn(label: Text('Nama Lengkap')),
+                  DataColumn(label: Text('Madrasah Diniyah')),
+                  DataColumn(label: Text('Sekolah Formal')),
+                  DataColumn(label: Text('Alamat Rumah')),
+                  DataColumn(label: Text('Aksi')),
+                ],
+                rows: dataTersaring.map((santri) {
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(santri.nis)),
+                      DataCell(
+                        Text(
+                          santri.namaLengkap,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      DataCell(Text(santri.kelasDiniyah)),
+                      DataCell(Text(santri.kelasFormal)),
+                      DataCell(
+                        Text('Ds. ${santri.desa}, Kec. ${santri.kecamatan}'),
+                      ),
+                      DataCell(
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(
+                                Icons.edit,
+                                color: Colors.orange,
+                              ),
+                              onPressed: () => _tampilkanFormInput(
+                                context,
+                                santriEksisting: santri,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () =>
+                                  _controller.hapusSantri(santri.id),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildHalamanAbsenHarian(List<SantriModel> semuaSantri) {
+    String tglStr = _formatTanggal(_tanggalTerpilih);
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Lembar Absen Harian - Kategori: $_subTabAbsenHarian',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              TextButton.icon(
+                icon: const Icon(Icons.calendar_month),
+                label: Text('Tanggal: $tglStr'),
+                onPressed: () async {
+                  DateTime? picked = await showDatePicker(
+                    context: context,
+                    initialDate: _tanggalTerpilih,
+                    firstDate: DateTime(2020),
+                    lastDate: DateTime(2030),
+                  );
+                  if (picked != null) setState(() => _tanggalTerpilih = picked);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: ['Formal', 'Diniyah', 'Syawir'].map((sub) {
+              bool aktif = _subTabAbsenHarian == sub;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: ChoiceChip(
+                  label: Text(sub),
+                  selected: aktif,
+                  onSelected: (_) => setState(() => _subTabAbsenHarian = sub),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Container(
+              color: Colors.white,
+              child: ListView.builder(
+                itemCount: semuaSantri.length,
+                itemBuilder: (context, i) {
+                  final s = semuaSantri[i];
+                  String statusSekarang = _controller.ambilStatusAbsen(
+                    _subTabAbsenHarian,
+                    tglStr,
+                    s.id,
+                  );
+
+                  return ListTile(
+                    title: Text(
+                      s.namaLengkap,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      'NIS: ${s.nis} | Diniyah: ${s.kelasDiniyah} | Formal: ${s.kelasFormal}',
+                    ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: ['Hadir', 'Sakit', 'Izin', 'Alpa'].map((st) {
+                        bool cocok = statusSekarang == st;
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: cocok
+                                  ? const Color(0xFF2563EB)
+                                  : Colors.grey,
+                              foregroundColor: cocok
+                                  ? Colors.white
+                                  : Colors.black,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ),
+                            ),
+                            onPressed: () => _controller.simpanAbsen(
+                              _subTabAbsenHarian,
+                              tglStr,
+                              s.id,
+                              st,
+                            ),
+                            child: Text(st),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHalamanAbsenPulang(List<SantriModel> semuaSantri) {
+    String tglStr = _formatTanggal(_tanggalTerpilih);
+
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Log Kepulangan Santri (Izin Keluar Pondok)',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              Text(
+                'Tanggal Log: $tglStr',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueGrey,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: Container(
+              color: Colors.white,
+              child: ListView.builder(
+                itemCount: semuaSantri.length,
+                itemBuilder: (context, i) {
+                  final s = semuaSantri[i];
+                  String statusPulang = _controller.ambilStatusAbsen(
+                    'Pulang',
+                    tglStr,
+                    s.id,
+                  );
+                  bool sudahPulang = statusPulang == 'Pulang';
+
+                  return ListTile(
+                    title: Text(
+                      s.namaLengkap,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      'Wali: ${s.namaAyah} | Telp: ${s.nomorTelepon}',
+                    ),
+                    trailing: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: sudahPulang
+                            ? Colors.deepOrange
+                            : const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: Icon(sudahPulang ? Icons.home : Icons.logout),
+                      label: Text(
+                        sudahPulang ? 'Sedang Pulang' : 'Izinkan Pulang',
+                      ),
+                      onPressed: () {
+                        String stBaru = sudahPulang ? '-' : 'Pulang';
+                        _controller.simpanAbsen('Pulang', tglStr, s.id, stBaru);
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _tampilkanFormInput(
+    BuildContext context, {
+    SantriModel? santriEksisting,
+  }) {
+    final formKey = GlobalKey<FormState>();
+    final isEdit = santriEksisting != null;
+
+    String nama = santriEksisting?.namaLengkap ?? '';
+    String nik = santriEksisting?.nik ?? '';
+    String nis = santriEksisting?.nis ?? '';
+    String tempatLahir = santriEksisting?.tempatLahir ?? '';
+    String jk = santriEksisting?.jenisKelamin ?? 'Laki-laki';
+    String desa = santriEksisting?.desa ?? '';
+    String kec = santriEksisting?.kecamatan ?? '';
+    String ayah = santriEksisting?.namaAyah ?? '';
+    String telp = santriEksisting?.nomorTelepon ?? '';
+    String formal = santriEksisting?.kelasFormal ?? '10 SMA';
+    String diniyah = santriEksisting?.kelasDiniyah ?? '1 Ibtida\'';
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(isEdit ? 'Edit Profil Santri' : 'Registrasi Santri Baru'),
+          content: SizedBox(
+            width: 700,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    TextFormField(
+                      initialValue: nama,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Lengkap',
+                      ),
+                      onChanged: (v) => nama = v,
+                      validator: (v) => v!.isEmpty ? 'Wajib' : null,
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: nis,
+                            decoration: const InputDecoration(labelText: 'NIS'),
+                            onChanged: (v) => nis = v,
+                            validator: (v) => v!.isEmpty ? 'Wajib' : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextFormField(
+                            initialValue: nik,
+                            decoration: const InputDecoration(labelText: 'NIK'),
+                            onChanged: (v) => nik = v,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: diniyah,
+                            decoration: const InputDecoration(
+                              labelText: 'Madrasah Diniyah',
+                            ),
+                            items: _opsiDiniyah
+                                .where((e) => e != 'Semua')
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => diniyah = v!,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            value: formal,
+                            decoration: const InputDecoration(
+                              labelText: 'Sekolah Formal',
+                            ),
+                            items: _opsiFormal
+                                .map(
+                                  (e) => DropdownMenuItem(
+                                    value: e,
+                                    child: Text(e),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) => formal = v!,
+                          ),
+                        ),
+                      ],
+                    ),
+                    TextFormField(
+                      initialValue: desa,
+                      decoration: const InputDecoration(
+                        labelText: 'Desa/Kelurahan',
+                      ),
+                      onChanged: (v) => desa = v,
+                    ),
+                    TextFormField(
+                      initialValue: kec,
+                      decoration: const InputDecoration(labelText: 'Kecamatan'),
+                      onChanged: (v) => kec = v,
+                    ),
+                    TextFormField(
+                      initialValue: ayah,
+                      decoration: const InputDecoration(
+                        labelText: 'Nama Ayah Kandung',
+                      ),
+                      onChanged: (v) => ayah = v,
+                    ),
+                    TextFormField(
+                      initialValue: telp,
+                      decoration: const InputDecoration(
+                        labelText: 'No HP Aktif Wali',
+                      ),
+                      onChanged: (v) => telp = v,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final data = SantriModel(
+                    id: isEdit
+                        ? santriEksisting.id
+                        : DateTime.now().millisecondsSinceEpoch.toString(),
+                    namaLengkap: nama,
+                    nik: nik,
+                    nis: nis,
+                    tempatLahir: tempatLahir,
+                    jenisKelamin: jk,
+                    desa: desa,
+                    kecamatan: kec,
+                    namaAyah: ayah,
+                    nomorTelepon: telp,
+                    kelasFormal: formal,
+                    kelasDiniyah: diniyah,
+                  );
+                  if (isEdit)
+                    await _controller.editSantri(data);
+                  else
+                    await _controller.tambahSantri(data);
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text('Simpan'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
